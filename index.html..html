@@ -1,0 +1,140 @@
+<!-- File: web/consent-location-share/index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Consent Location Share</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;max-width:760px;margin:2rem auto;padding:1rem}
+    .card{border:1px solid #e5e7eb;border-radius:12px;padding:1rem;margin-bottom:1rem;box-shadow:0 4px 12px rgba(0,0,0,.03)}
+    button{background:#2563eb;color:white;border:0;padding:0.6rem 1rem;border-radius:8px;cursor:pointer}
+    button.secondary{background:#6b7280}
+    pre{background:#f3f4f6;padding:0.75rem;border-radius:8px;overflow:auto}
+    .danger{color:#b91c1c}
+  </style>
+</head>
+<body>
+  <h1>Consent Location Share</h1>
+  <div class="card">
+    <strong>TL;DR</strong>
+    <p>This page <em>only</em> shares location after the other person <strong>explicitly clicks</strong> the button and gives browser permission. It creates a link you can copy or send via WhatsApp. Do not use this unless the other person agrees.</p>
+  </div>
+
+  <div class="card">
+    <h3>How it works (short)</h3>
+    <ol>
+      <li>They open this page.</li>
+      <li>They read the clear consent notice and click <em>Share my location</em>.</li>
+      <li>The browser asks for permission; when allowed we create a Google Maps link (and a shareable WhatsApp message).</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>Consent & actions</h3>
+    <label><input id="consentChk" type="checkbox"/> I consent to share my current location with the person who sent this link.</label>
+    <p class="danger" id="warning">Make sure you trust the person requesting this. Your location will be visible to them.</p>
+    <div style="margin-top:.5rem">
+      <button id="shareBtn">Share my location (one-time)</button>
+      <button id="startLiveBtn" class="secondary">Start live share</button>
+      <button id="stopLiveBtn" class="secondary" style="display:none">Stop live share</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Result</h3>
+    <div id="status">Not sharing.</div>
+    <div id="coords" style="margin-top:.5rem"></div>
+    <div id="links" style="margin-top:.5rem"></div>
+    <pre id="debug" style="display:none"></pre>
+  </div>
+
+  <script>
+    // Minimal, readable, self-contained client-only app.
+    const consentChk = document.getElementById('consentChk');
+    const shareBtn = document.getElementById('shareBtn');
+    const startLiveBtn = document.getElementById('startLiveBtn');
+    const stopLiveBtn = document.getElementById('stopLiveBtn');
+    const status = document.getElementById('status');
+    const coordsEl = document.getElementById('coords');
+    const linksEl = document.getElementById('links');
+    const debug = document.getElementById('debug');
+
+    let watchId = null;
+
+    function makeMapLink(lat, lon) {
+      return `https://www.google.com/maps?q=${lat},${lon}`;
+    }
+
+    function makeWhatsAppLink(text) {
+      const encoded = encodeURIComponent(text);
+      return `https://wa.me/?text=${encoded}`;
+    }
+
+    function updateUI(lat, lon, isLive=false) {
+      coordsEl.innerHTML = `<strong>Coordinates:</strong> ${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+      const mapLink = makeMapLink(lat, lon);
+      const msg = `My location: ${mapLink}`;
+      linksEl.innerHTML = `
+        <div><a href="${mapLink}" target="_blank">Open in Google Maps</a></div>
+        <div style="margin-top:.5rem"><button onclick="navigator.clipboard.writeText('${mapLink}')">Copy map link</button>
+        <button onclick="navigator.clipboard.writeText('${msg}')">Copy WhatsApp message</button>
+        <a style="margin-left:.5rem" href="${makeWhatsAppLink(msg)}" target="_blank"><button>Send via WhatsApp</button></a></div>
+      `;
+      status.textContent = isLive ? 'Sharing live — visible to recipient while active.' : 'Shared (one-time).';
+    }
+
+    function showError(e) {
+      status.textContent = 'Error: ' + (e.message || e);
+      debug.style.display = 'block';
+      debug.textContent = JSON.stringify(e, Object.getOwnPropertyNames(e), 2);
+    }
+
+    function ensureConsent() {
+      if (!consentChk.checked) {
+        alert('You must check the consent box before sharing location.');
+        throw new Error('consent_required');
+      }
+    }
+
+    shareBtn.addEventListener('click', async () => {
+      try {
+        ensureConsent();
+        if (!navigator.geolocation) throw new Error('Geolocation not supported');
+        status.textContent = 'Requesting location...';
+        navigator.geolocation.getCurrentPosition(pos => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          updateUI(lat, lon, false);
+        }, showError, {enableHighAccuracy: true, maximumAge: 5000, timeout: 20000});
+      } catch (e) { if (e.message !== 'consent_required') showError(e); }
+    });
+
+    startLiveBtn.addEventListener('click', async () => {
+      try {
+        ensureConsent();
+        if (!navigator.geolocation) throw new Error('Geolocation not supported');
+        status.textContent = 'Starting live share...';
+        watchId = navigator.geolocation.watchPosition(pos => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          updateUI(lat, lon, true);
+        }, showError, {enableHighAccuracy: true, maximumAge: 3000, timeout: 20000});
+        startLiveBtn.style.display = 'none';
+        stopLiveBtn.style.display = '';
+      } catch (e) { if (e.message !== 'consent_required') showError(e); }
+    });
+
+    stopLiveBtn.addEventListener('click', () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+      status.textContent = 'Live share stopped.';
+      startLiveBtn.style.display = '';
+      stopLiveBtn.style.display = 'none';
+    });
+
+    // Expose minimal helpers for onclick attributes used above
+    window.navigator = window.navigator;
+  </script>
+</body>
+</html>
